@@ -1,0 +1,79 @@
+# Conditional Flow Matching model configuration (Frame-to-Frame)
+# Uses Optimal Transport Conditional Flow Matching (OT-CFM)
+# 
+# This is a FRAME-TO-FRAME model (non-autoregressive):
+#   Input:  [current_state_noisy, conditioning]  
+#   Target: current_output
+#
+# Supports multiple tasks via task_cfg:
+#   - temperature_from_sdf: Predict temperature from SDF (Task 1)
+#   - velocity_from_interface: Predict velocity + temperature (Task 2)
+#
+# ============================================================================
+# ARCHITECTURE IMPROVEMENTS (applicable to flow matching)
+# ============================================================================
+# These are architecture improvements that are theoretically sound:
+#
+# 1. attention_type: 'none' or 'bottleneck'
+#    - 'none': No attention (fastest, baseline)
+#    - 'bottleneck': Attention only at lowest resolution (recommended)
+#      This provides global context for physics (heat flux, mass conservation)
+#      with minimal computational overhead.
+#
+# 2. adaptive_scale: true/false
+#    - FiLM-style time conditioning: h = scale * norm(h) + shift
+#    - May help with multi-scale PDE problems (experimental)
+#
+# 3. skip_scale: true/false
+#    - Scale skip connections by 1/sqrt(2) for variance stability
+#    - Standard deep learning practice, helps gradient flow
+#
+# ============================================================================
+
+name: flow_matching
+
+# Model architecture
+base_channels: 32  # Base number of channels (32→64→128 progression)
+time_embed_dim: 256  # Timestep embedding dimension
+num_res_blocks: 2  # Residual blocks per level
+dropout: 0.1  # Dropout probability
+
+# =============================================================================
+# ARCHITECTURE OPTIONS
+# =============================================================================
+# Attention: 'none' (baseline) or 'bottleneck' (recommended for physics)
+attention_type: none
+
+# Adaptive scale time conditioning (FiLM-style) - experimental
+adaptive_scale: false
+
+# Skip connection scaling (1/sqrt(2)) - generally helps training
+skip_scale: false
+
+# =============================================================================
+# Loss configuration: mse | l1 | huber | relative_l1 | relative_l2 | hybrid
+# =============================================================================
+loss_type: relative_l1
+# For hybrid loss, specify weights (only used when loss_type=hybrid):
+# loss_weights:
+#   l1: 0.8
+#   mse: 0.2
+# loss_eps: 0.01  # epsilon for relative losses
+# loss_delta: 0.25  # delta for huber loss (only used when loss_type=huber)
+
+# =============================================================================
+# Flow matching parameters
+# =============================================================================
+num_integration_steps: 50  # Number of ODE integration steps for sampling
+
+# DEPRECATED: Temperature normalization handled by dataset automatically.
+temp_min: 55.0
+temp_max: 120.0
+
+# Inference configuration
+inference:
+  solver: heun  # ODE solver: euler, heun, midpoint, rk4
+  guidance_scale: 1.0  # Placeholder (not used in standard flow matching)
+
+# Model name for loading
+_target_: bubblefusion.models.flow_matching.ConditionalFlowMatchingLightning

@@ -1,0 +1,119 @@
+# Task Configuration: Noisy Velocity & Temperature Prediction from Interface
+# Task 3: Predict bulk liquid velocity + temperature from NOISY bubble position + interface velocity
+#
+# This task is a noisy variant of Task 2 (velocity_from_interface). It simulates
+# the uncertainty that arises when bubble position (SDF) and interface velocity
+# are estimated from optical flow on boiling videos, rather than from clean simulations.
+#
+# Input channels from dataset: [sdf, velx_interface, vely_interface] + NOISE
+# Output channels from dataset: [temperature, velx, vely]
+#
+# Model uses:
+#   - Conditioning: SDF + interface velocities (channels 0, 1, 2 from input) WITH NOISE
+#   - Target: velx, vely, temperature (channels 1, 2, 0 from output - reordered)
+#
+# Noise Model:
+#   The noise mimics optical flow estimation errors:
+#   - SDF noise: Gradient-aware (higher at bubble boundaries) + spatially correlated
+#   - Velocity noise: Scales with velocity magnitude + spatially correlated
+#   NOTE: Noise is applied BEFORE normalization
+#
+# Normalization (handled by dataset automatically):
+#   ALL fields are normalized according to NORMALIZATION_REQUIREMENTS.md:
+#   - SDF: Zero-preserving normalization (sdf / scale) - preserves interface at zero
+#   - Velocity (input/output): Unified scale normalization (vel / unified_scale)
+#   - Temperature: Tanh normalization to [-1, 1]
+#
+#   Normalization stats are computed from all training files at initialization.
+#
+# =============================================================================
+# DUAL VALIDATION SETUP
+# =============================================================================
+# When noise is enabled, training automatically creates TWO validation splits:
+#   - val_clean: No noise applied (measures physics fidelity / regression sanity)
+#   - val_noisy: Same noise as training (measures deployment performance)
+#
+# Logged metrics:
+#   - val_clean_loss: Loss on clean inputs (physics fidelity)
+#   - val_noisy_loss: Loss on noisy inputs (deployment metric)
+#   - val_loss: Same as val_clean_loss (for checkpointing compatibility)
+
+name: noisy_velocity_from_interface
+
+# Semantic description
+description: "Predict bulk liquid velocity and temperature from NOISY bubble position and interface velocity (simulating optical flow uncertainty)"
+
+# Which input channels to use as conditioning
+# These indices refer to the input tensor from the dataset: [sdf, velx_interface, vely_interface]
+conditioning_channels: [0, 1, 2]  # Use SDF and interface velocities (with noise applied)
+conditioning_names: ["sdf_noisy", "velx_interface_noisy", "vely_interface_noisy"]
+
+# Which output channels are targets for prediction
+# Dataset outputs: [temperature, velx, vely] at indices [0, 1, 2]
+# We reorder to [velx, vely, temperature] by specifying [1, 2, 0]
+target_channels: [1, 2, 0]  # Maps to [velx, vely, temperature]
+target_names: ["velx", "vely", "temperature"]
+
+# =============================================================================
+# NOISE CONFIGURATION
+# =============================================================================
+# These parameters control the noise injection that simulates optical flow errors.
+# Noise is applied ONLY to conditioning inputs (SDF, interface velocity), not targets.
+#
+# Noise Model Overview:
+# - SDF Noise: Gradient-aware noise (higher at bubble boundaries where optical flow
+#              struggles with sharp edges) + spatially correlated base noise
+# - Velocity Noise: Scales with velocity magnitude (faster motion = higher optical
+#                   flow uncertainty) + spatially correlated base noise
+
+noise_cfg:
+  enabled: true  # Set to false to disable noise (becomes identical to Task 2)
+  
+  # Noise Type Selection
+  # --------------------
+  # Choose between simple Gaussian noise or complex optical flow noise:
+  #   - "gaussian" or "simple": Simple i.i.d. Gaussian noise (fast baseline)
+  #   - "optical_flow" or "complex": Realistic optical flow noise (gradient-aware, velocity-scaled)
+  noise_type: gaussian  # Options: "gaussian", "simple", "optical_flow", "complex"
+  
+  # =============================================================================
+  # SIMPLE GAUSSIAN NOISE PARAMETERS (used when noise_type="gaussian")
+  # =============================================================================
+  # Simple i.i.d. Gaussian noise - use for quick baseline experiments
+  #
+  # RECOMMENDED NOISE LEVELS (based on signal magnitudes):
+  # - Velocity: Typical range [-3, 4], so noise should be 5-15% of range
+  #   → vel_noise_std: 0.15 to 0.5 (current 0.05 is too small ~1-2%)
+  # - SDF: Check typical SDF range, but 0.1 might be small
+  #   → sdf_noise_std: 0.2 to 0.5 (current 0.1 might be too small)
+  #
+  # If clean vs noisy inference shows similar results, increase noise!
+  # If model performs WORSE on clean inputs, it's overfitting to noise → reduce noise
+  #
+  sdf_noise_std: 2   # Standard deviation of noise for SDF (increased from 0.1)
+  vel_noise_std: 1   # Standard deviation of noise for velocity (increased from 0.05)
+  
+  # =============================================================================
+  # OPTICAL FLOW NOISE PARAMETERS (used when noise_type="optical_flow")
+  # =============================================================================
+  # SDF Noise Parameters
+  # --------------------
+  # Optical flow has trouble at object edges, so SDF noise is higher at the
+  # bubble interface (where gradient is large) and lower in uniform regions.
+  # sdf_noise_std: 0.4      # Base noise level for SDF (always present)
+  # sdf_gradient_scale: 1  # Additional noise scale at high-gradient regions (edges)
+                           # Total noise = base + gradient_scale * local_gradient
+  
+  # Velocity Noise Parameters
+  # -------------------------
+  # Optical flow errors typically scale with flow magnitude.
+  # vel_base_noise_std: 0.15  # Base noise even for zero velocity
+  # vel_scale_factor: 0.3    # Noise = base + scale_factor * |velocity|
+  
+  # # Spatial Correlation
+  # # -------------------
+  # # Optical flow errors are spatially coherent (neighboring pixels have similar errors).
+  # # This is modeled by Gaussian filtering of white noise.
+  # correlation_length: 3.0  # Standard deviation of Gaussian kernel (in pixels)
+  #                          # Higher = smoother noise, lower = more random/pixelated
+

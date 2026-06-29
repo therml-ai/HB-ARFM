@@ -1,0 +1,219 @@
+# Bootstrap AR Flow Matching for Temporal Consistency
+# 
+# This model can operate in TWO MODES:
+#
+# 1. BOOTSTRAP MODE (previous state missing):
+#    - Uses a history encoder to infer the initial bulk state from
+#      a sequence of conditioning inputs (SDF, interface velocity)
+#    - No zeros fed - the model explicitly learns to estimate initial state
+#    - Used for the FIRST frame of each trajectory
+#
+# 2. AUTOREGRESSIVE MODE (previous state exists):
+#    - Standard AR prediction using previous timestep output
+#    - Same as flow_matching_ar.py
+#    - Used for SUBSEQUENT frames
+#
+# Key Design Principles:
+# - Never feed zeros and hope the model figures it out
+# - Explicitly tell the model whether previous state exists via availability mask
+# - Train both modes jointly in the same rollout for end-to-end learning
+#
+# Training Strategy:
+# - Sample trajectory segments of length rollout_length
+# - First frame uses bootstrap mode (infer initial state from history)
+# - Subsequent frames use AR mode with teacher forcing or scheduled sampling
+# - Both bootstrap and AR losses trained jointly
+#
+# Architecture:
+# - HistoryEncoder: Temporal CNN that takes [B, T_hist, C_cond, H, W] → [B, C_out, H, W]
+# - FlowMatchingUNet: Main velocity field predictor (same as flow_matching_ar.py)
+# - Availability mask channel: Indicates whether previous state is real (1) or bootstrapped (0)
+#
+# Benefits:
+# - Eliminates spin-up period when starting inference without ground truth
+# - End-to-end trainable - no separate initialization network needed
+# - Model learns both how to estimate initial state AND how to predict transitions
+
+name: flow_matching_ar_bootstrap
+
+# Model architecture (same as base flow_matching)
+base_channels: 32  # base number of channels (adjust for capacity)
+time_embed_dim: 256  # timestep embedding dimension
+num_res_blocks: 2  # residual blocks per level
+use_attention: false  # use attention blocks (can enable for better quality)
+dropout: 0.1  # dropout probability
+
+# Flow matching parameters
+num_integration_steps: 50  # number of ODE integration steps for sampling
+
+# Noise scale for flow matching
+noise_scale: 1.0  # Standard Gaussian noise (DO NOT CHANGE)
+
+# =============================================================================
+# BOOTSTRAP CONFIGURATION
+# =============================================================================
+# History encoder takes past conditioning inputs to estimate initial state
+
+# Number of past timesteps to use for bootstrap initialization
+# Longer history gives more context but increases memory/compute
+history_length: 20
+
+
+# Stride between history frames (1 = consecutive, 2 = every other frame, etc.)
+# With history_length=10 and history_stride=2, the model sees frames spanning
+# 20 timesteps back (instead of 10), giving a wider temporal receptive field.
+history_stride: 1
+
+# Number of frames in each training segment (rollout)
+# First frame uses bootstrap, rest use AR mode
+# Longer rollouts give more AR training signal per sample
+rollout_length: 5
+
+# Whether to use availability mask to distinguish bootstrap vs AR modes
+# If true, adds a [B, 1, H, W] channel indicating:
+#   - 0 = bootstrapped previous state
+#   - 1 = real previous state (from AR prediction or ground truth)
+use_availability_mask: false
+
+# =============================================================================
+# HISTORY ENCODER CONFIGURATION
+# =============================================================================
+# The history encoder aggregates past conditioning to produce an initial state estimate.
+# Two options available:
+#
+# 1. "conv3d" (default): Conv3D-based encoder with temporal pooling
+#    - More expressive, captures temporal patterns explicitly
+#    - Slower and more memory-intensive
+#    - Better for final models where quality matters most
+#
+# 2. "temporal_mixer": Fast channel-mixing approach
+#    - Flattens time into channels, uses 1x1 + 3x3 convs
+#    - ~3-5x faster than conv3d
+#    - Good for fast prototyping or when compute is limited
+#    - May lose some temporal structure information
+
+history_encoder_type: attention  # Options: "conv3d", "temporal_mixer", "attention"
+
+# Common settings
+history_encoder_hidden: 32  # hidden channels (64 for conv3d, 32 recommended for temporal_mixer)
+
+# Conv3D-specific settings (only used when history_encoder_type: conv3d)
+history_encoder_blocks: 3   # number of temporal conv blocks
+
+# TemporalMixer-specific settings (only used when history_encoder_type: temporal_mixer)
+temporal_mixer_spatial_conv: true   # add 3x3 conv for spatial context (slightly slower but better)
+temporal_mixer_temporal_weights: true  # learn per-timestep importance weights (recent frames weighted higher)
+
+# Attention encoder settings (only used when history_encoder_type: attention)
+# Factored space-time transformer inspired by ENMA.
+# Patchifies each frame, applies alternating spatial and causal temporal attention.
+attention_encoder_embed_dim: 256        # transformer hidden dimension
+attention_encoder_num_heads: 8          # number of attention heads
+attention_encoder_depth: 4              # number of spatial-temporal block pairs
+attention_encoder_patch_size: 8         # patch size for patchification
+attention_encoder_mlp_ratio: 4.0        # FFN hidden dim = embed_dim * mlp_ratio
+attention_encoder_dropout: 0.0          # dropout in attention & FFN
+attention_encoder_output_head: linear   # 'linear' (unpatchify) or 'conv_decoder' (transposed conv)
+attention_encoder_max_history_length: 50  # max T for learned temporal positional embeddings
+
+# =============================================================================
+# LOSS CONFIGURATION
+# =============================================================================
+
+# Weight for bootstrap losses (direct state supervision + flow matching at t=0)
+bootstrap_loss_weight: 1.0
+
+# Weight for AR losses (flow matching at t=1, 2, ...)
+ar_loss_weight: 1.0
+
+# Direct supervision on bootstrapped state (before flow matching)
+# This encourages the history encoder to produce accurate initial states
+bootstrap_state_loss_weight: 0.5
+
+# =============================================================================
+# AR TEMPORAL DECAY (for weighted AR loss)
+# =============================================================================
+# Weight early frames more heavily in AR loss to prioritize early-frame accuracy.
+# This helps "kill spin-up" by ensuring the bootstrap-to-AR transition is smooth.
+# Loss weight for frame l: gamma^(l-1), so l=1 gets weight 1.0, l=2 gets gamma, etc.
+ar_temporal_decay:
+  enabled: false  # Set to true to enable exponential decay weighting
+  gamma: 0.85     # Decay factor (0.85 means frame 2 gets 85% weight, frame 3 gets 72%, etc.)
+
+# =============================================================================
+# AUXILIARY LOSSES (for sharper outputs)
+# =============================================================================
+auxiliary_losses:
+  spectral_enabled: false
+  spectral_weight: 0.1
+  spectral_high_freq_weight: 2.0
+  spectral_freq_threshold: 0.3
+  
+  gradient_enabled: false
+  gradient_weight: 0.1
+
+# =============================================================================
+# INFERENCE CONFIGURATION
+# =============================================================================
+inference:
+  solver: heun  # ODE solver: euler, heun, midpoint, rk4
+  guidance_scale: 1.0  # CFG scale (1.0 = no guidance)
+
+# DEPRECATED: Temperature normalization handled by dataset automatically
+temp_min: 55.0  # approximate
+temp_max: 120.0  # approximate
+
+# Wall temperature conditioning (ABLATION STUDY)
+conditioning_strategy: none
+
+# =============================================================================
+# SCHEDULED SAMPLING CONFIGURATION (for AR mode)
+# =============================================================================
+# Can be enabled to reduce exposure bias in AR predictions
+# NOTE: Scheduled sampling and push forward are MUTUALLY EXCLUSIVE.
+#       Only enable ONE of them at a time.
+
+scheduled_sampling:
+  enabled: true            # ENABLED for learning from own mistakes
+  schedule_type: "linear"
+  warmup_epochs: 5         # 3 epochs (~3h) of pure teacher forcing to learn basics
+  transition_epochs: 20    # by epoch 15 (~15h), mostly using own predictions
+  min_teacher_ratio: 0.2   # keep 20% teacher forcing for stability
+  exponential_decay_rate: 0.95
+  sigmoid_k: 5.0
+  sampling_steps: 10       # fewer steps = faster (10 is enough for training)
+
+# =============================================================================
+# PUSH FORWARD TRICK CONFIGURATION (alternative to scheduled sampling)
+# =============================================================================
+# Push forward trick: Instead of random mixing like scheduled sampling,
+# explicitly run K inference steps using model predictions, then compute loss.
+# This creates longer rollouts where errors compound, forcing the model to
+# learn robustness to its own mistakes.
+#
+# Key differences from scheduled sampling:
+# - Scheduled sampling: Random per-frame decision (GT vs model pred)
+# - Push forward: Deterministic K-step rollout using model predictions
+#
+# How it works:
+# 1. Start from bootstrapped state (or GT if warmup)
+# 2. Run inference for push_forward_steps using model's own predictions
+# 3. Compute loss on the final generated frames
+# 4. Gradually increase push_forward_steps during training
+#
+# Benefits:
+# - More systematic exposure to error accumulation
+# - Better handles the distribution shift during inference
+# - Can be combined with teacher forcing for stability
+
+push_forward:
+  enabled: false              # Set to true to enable push forward trick
+  warmup_epochs: 3            # Epochs of pure teacher forcing before push forward starts
+  max_push_steps: 3           # Maximum number of push forward steps (<=rollout_length-1)
+  step_increase_epochs: 10    # Epochs between increasing push forward steps
+  sampling_steps: 15          # ODE integration steps for generating predictions
+  loss_on_all_pushed: true    # If true, compute loss on all pushed frames; if false, only last
+  detach_pushed: false        # If true, detach pushed predictions when chaining (saves memory)
+
+# Model name for loading
+_target_: bubblefusion.models.flow_matching_ar_bootstrap.ConditionalFlowMatchingARBootstrapLightning

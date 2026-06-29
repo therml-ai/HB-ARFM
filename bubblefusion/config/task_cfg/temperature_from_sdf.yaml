@@ -1,0 +1,35 @@
+# Task Configuration: Temperature Prediction from SDF
+# Task 1: Predict temperature field from bubble position (SDF)
+#
+# This task uses the signed distance function (SDF) as conditioning input
+# to predict the temperature field in the domain.
+#
+# Input channels from dataset: [sdf, velx_interface, vely_interface]
+# Output channels from dataset: [temperature, velx, vely]
+#
+# Model uses:
+#   - Conditioning: SDF only (channel 0 from input)
+#   - Target: Temperature only (channel 0 from output)
+#
+# Normalization (handled by dataset automatically):
+#   ALL fields are normalized according to NORMALIZATION_REQUIREMENTS.md:
+#   - SDF: Zero-preserving normalization (sdf / scale) - preserves interface at zero
+#   - Velocity (input): Unified scale normalization (vel / unified_scale)
+#   - Temperature: Tanh normalization to [-1, 1]
+#
+#   Normalization stats are computed from all training files at initialization.
+
+name: temperature_from_sdf
+
+# Semantic description
+description: "Predict temperature field from bubble SDF conditioning"
+
+# Which input channels to use as conditioning
+# These indices refer to the input tensor from the dataset: [sdf, velx_interface, vely_interface]
+conditioning_channels: [0]  # Use only SDF as conditioning
+conditioning_names: ["sdf"]
+
+# Which output channels are targets for prediction
+# These indices refer to the output tensor from the dataset: [temperature, velx, vely]
+target_channels: [0]  # Predict only temperature
+target_names: ["temperature"]

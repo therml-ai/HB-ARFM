@@ -1,0 +1,43 @@
+{
+  "temperature": {
+    "min": 48.2677116394043,
+    "max": 114.69145965576172,
+    "center": 81.47958564758301,
+    "half_range": 33.21187400817871,
+    "method": "tanh"
+  },
+  "velx": {
+    "scale": 3.0820155334472656,
+    "method": "scale"
+  },
+  "vely": {
+    "scale": 3.0820155334472656,
+    "method": "scale"
+  },
+  "velx_interface": {
+    "scale": 3.0820155334472656,
+    "method": "scale"
+  },
+  "vely_interface": {
+    "scale": 3.0820155334472656,
+    "method": "scale"
+  },
+  "sdf": {
+    "scale": 15.942469596862793,
+    "method": "scale"
+  },
+  "stream_function": {
+    "scale": 2.0681290674209594,
+    "max": 3.7946765422821045,
+    "mean": 0.4876601274616963,
+    "std": 0.5031578774222908,
+    "percentile_used": 99.0,
+    "boundary_condition": "neumann",
+    "method": "scale",
+    "note": "Computed from normalized velocity fields"
+  },
+  "unified_velocity_scale": 3.0820155334472656,
+  "velocity_max": 22.900434494018555,
+  "velocity_percentile_used": 99.0,
+  "has_interface_velocity": 1.0
+}

@@ -1,0 +1,124 @@
+# Autoregressive EDM with Bootstrap Initialization
+#
+# This model can operate in TWO MODES:
+#
+# 1. BOOTSTRAP MODE (previous state missing):
+#    - Uses a history encoder to infer the initial bulk state from
+#      a sequence of conditioning inputs (SDF, interface velocity)
+#    - No zeros fed - the model explicitly learns to estimate initial state
+#    - Used for the FIRST frame of each trajectory
+#
+# 2. AUTOREGRESSIVE MODE (previous state exists):
+#    - Standard AR prediction using previous timestep output
+#    - EDM-style diffusion for each frame
+#    - Used for SUBSEQUENT frames
+#
+# Key Design Principles:
+# - Never feed zeros and hope the model figures it out
+# - Explicitly tell the model whether previous state exists via availability mask
+# - Train both modes jointly in the same rollout for end-to-end learning
+#
+# References:
+#   - EDM: "Elucidating the Design Space of Diffusion-Based Generative Models" (Karras et al., 2022)
+#   - DiffusionPDE: https://arxiv.org/abs/2406.17763
+
+name: edm_ar_bootstrap
+
+# =============================================================================
+# EDM ARCHITECTURE (SongUNet from DDPM++ / NCSN++)
+# =============================================================================
+# Base resolution of the dataset (before downsampling)
+base_resolution: 512
+
+model_channels: 32           # Base channel multiplier
+channel_mult: [1, 2, 4]      # Per-resolution multipliers: 32->64->128
+channel_mult_emb: 4          # Embedding dimension multiplier
+num_blocks: 2                # Residual blocks per resolution
+dropout: 0.10                # Dropout probability
+
+# EDM-specific parameters
+sigma_min: 0.002             # Minimum noise level
+sigma_max: 80                # Maximum noise level
+sigma_data: 0.5              # Expected data standard deviation
+rho: 7                       # Noise schedule exponent
+
+# Embedding configuration
+embedding_type: positional   # 'positional' (DDPM++) or 'fourier' (NCSN++)
+channel_mult_noise: 1        # Timestep embedding size multiplier
+
+# Encoder/Decoder architecture
+encoder_type: standard       # 'standard', 'skip', or 'residual'
+decoder_type: standard       # 'standard' or 'skip'
+resample_filter: [1, 1]      # Resampling filter
+
+# Precision
+use_fp16: false
+
+# Sampling configuration
+num_sampling_steps: 50       # Number of EDM sampling steps
+
+# =============================================================================
+# BOOTSTRAP CONFIGURATION
+# =============================================================================
+history_length: 20
+history_stride: 1
+rollout_length: 5
+use_availability_mask: true
+
+# =============================================================================
+# HISTORY ENCODER CONFIGURATION
+# =============================================================================
+# "conv3d": Conv3D-based encoder (more expressive, slower)
+# "temporal_mixer": Fast channel-mixing approach (~3-5x faster)
+
+history_encoder_type: temporal_mixer
+
+# Common settings
+history_encoder_hidden: 32
+
+# Conv3D-specific settings
+history_encoder_blocks: 3
+
+# TemporalMixer-specific settings
+temporal_mixer_spatial_conv: true
+temporal_mixer_temporal_weights: true
+
+
+# Attention encoder settings (only used when history_encoder_type: attention)
+attention_encoder_embed_dim: 256
+attention_encoder_num_heads: 8
+attention_encoder_depth: 4
+attention_encoder_patch_size: 8
+attention_encoder_mlp_ratio: 4.0
+attention_encoder_dropout: 0.0
+attention_encoder_output_head: linear
+attention_encoder_max_history_length: 50
+
+# =============================================================================
+# INFERENCE CONFIGURATION
+# =============================================================================
+inference:
+  solver: heun
+
+# DEPRECATED: Temperature normalization handled by dataset automatically
+temp_min: 55.0
+temp_max: 120.0
+
+# Wall temperature conditioning (ABLATION STUDY)
+conditioning_strategy: none
+
+# =============================================================================
+# SCHEDULED SAMPLING CONFIGURATION (for AR mode)
+# =============================================================================
+scheduled_sampling:
+  enabled: true
+  schedule_type: "linear"
+  warmup_epochs: 5
+  transition_epochs: 20
+  min_teacher_ratio: 0.2
+  exponential_decay_rate: 0.95
+  sigmoid_k: 5.0
+  sampling_steps: 10
+
+# Model name for loading
+_target_: bubblefusion.models.edm_ar_bootstrap.EDMARBootstrapLightning

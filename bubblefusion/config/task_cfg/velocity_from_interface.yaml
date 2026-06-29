@@ -1,0 +1,36 @@
+# Task Configuration: Velocity & Temperature Prediction from Interface
+# Task 2: Predict bulk liquid velocity + temperature from bubble position + interface velocity
+#
+# This task uses bubble position (SDF) and interface velocity as conditioning
+# to predict both bulk liquid velocity and temperature fields.
+#
+# Input channels from dataset: [sdf, velx_interface, vely_interface] (indices 0, 1, 2)
+# Output channels from dataset: [temperature, velx, vely] (indices 0, 1, 2)
+#
+# Model uses:
+#   - Conditioning: SDF + interface velocities (channels 0, 1, 2 from input)
+#   - Target: velx, vely, temperature (channels 1, 2, 0 from output - reordered via target_channels)
+#
+# Normalization (handled by dataset automatically):
+#   ALL fields are normalized according to NORMALIZATION_REQUIREMENTS.md:
+#   - SDF: Zero-preserving normalization (sdf / scale) - preserves interface at zero
+#   - Velocity (input/output): Unified scale normalization (vel / unified_scale)
+#   - Temperature: Tanh normalization to [-1, 1]
+#
+#   Normalization stats are computed from all training files at initialization.
+
+name: velocity_from_interface
+
+# Semantic description
+description: "Predict bulk liquid velocity and temperature from bubble position and interface velocity"
+
+# Which input channels to use as conditioning
+# These indices refer to the input tensor from the dataset: [sdf, velx_interface, vely_interface]
+conditioning_channels: [0, 1, 2]  # Use SDF and interface velocities
+conditioning_names: ["sdf", "velx_interface", "vely_interface"]
+
+# Which output channels are targets for prediction
+# Dataset outputs: [temperature, velx, vely] at indices [0, 1, 2]
+# We reorder to [velx, vely, temperature] by specifying [1, 2, 0]
+target_channels: [1, 2, 0]  # Maps to [velx, vely, temperature]
+target_names: ["velx", "vely", "temperature"]

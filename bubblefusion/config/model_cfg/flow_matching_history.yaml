@@ -1,0 +1,60 @@
+# History-Window Conditional Flow Matching (non-autoregressive baseline)
+#
+# Uses a sliding window of W past conditioning frames (SDF + interface velocity)
+# to predict the target fields at the current timestep. Pure channel concatenation:
+#   Input:  [x_t_noisy, SDF_{t-(W-1)*S}, iVel_{t-(W-1)*S}, ..., SDF_t, iVel_t]
+#   Target: [velx_t, vely_t, temp_t]
+#
+# Training = inference (no AR loop, no exposure bias).
+# This is the simplest possible history-aware flow matching baseline.
+
+name: flow_matching_history
+
+# =============================================================================
+# HISTORY CONFIGURATION
+# =============================================================================
+# Number of past conditioning frames in the sliding window (W).
+# The dataset returns the flattened window: [W * C_cond, H, W].
+history_window: 10
+
+# Stride S between conditioning frames in raw timesteps.
+# The window covers indices [t - (W-1)*S, ..., t - S, t], spanning
+# (W-1)*S + 1 raw frames.  Compute is independent of S (channel count
+# only depends on W), so larger S = longer time horizon for free.
+#   S=1: 10 consecutive frames (default, original behavior)
+#   S=2: 10 frames spanning  19 raw frames
+#   S=3: 10 frames spanning  28 raw frames
+#   S=4: 10 frames spanning  37 raw frames
+history_stride: 1
+
+# =============================================================================
+# MODEL ARCHITECTURE (same UNet as frame-to-frame flow_matching)
+# =============================================================================
+base_channels: 32
+time_embed_dim: 256
+num_res_blocks: 2
+dropout: 0.1
+
+attention_type: none
+adaptive_scale: false
+skip_scale: false
+
+# =============================================================================
+# Loss: mse | l1 | huber | relative_l1 | relative_l2 | hybrid
+# =============================================================================
+loss_type: mse
+
+# =============================================================================
+# Flow matching parameters
+# =============================================================================
+num_integration_steps: 50
+
+inference:
+  solver: heun
+  guidance_scale: 1.0
+
+# DEPRECATED: Temperature normalization handled by dataset automatically.
+temp_min: 55.0
+temp_max: 120.0
+
+_target_: bubblefusion.models.flow_matching_history.ConditionalFlowMatchingHistoryLightning

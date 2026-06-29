@@ -1,0 +1,36 @@
+log_dir:
+seed:
+
+nodes:
+devices:
+
+max_epochs:
+batch_size:
+
+checkpoint_path:
+
+auto_resume: false  # Automatically resume from latest checkpoint if available
+resume_from_last: false  # Look for the latest checkpoint in log_dir
+checkpoint_monitor: "val_loss"  # Metric to monitor for best checkpoint
+checkpoint_mode: "min"  # "min" for loss, "max" for accuracy
+save_top_k: 3  # Number of best checkpoints to keep
+save_last: true  # Always save the last checkpoint
+
+use_wandb:
+
+# WandB configuration
+wandb_cfg:
+  project: "bubblefusion"
+  entity:  # Optional: your wandb username/team
+  name:  # Optional: specific run name (e.g., "simplified_ddpm_32_256_2_False_pb_saturated_singlestep_44358292")
+  tags: []  # Optional: list of tags
+  notes: ""  # Optional: notes about the run
+
+data_home:
+defaults:
+  - _self_
+  - data_cfg: flowboiling_velscale
+  - model_cfg: flow_matching
+  - optim_cfg: lion
+  - scheduler_cfg: cosine_warmup
+  - task_cfg: temperature_from_sdf

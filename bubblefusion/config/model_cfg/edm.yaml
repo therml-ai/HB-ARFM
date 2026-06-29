@@ -1,0 +1,75 @@
+# EDM: Elucidating the Design Space of Diffusion-Based Generative Models (Karras et al., 2022)
+# Baseline model using EDM-style diffusion architecture
+#
+# Reference:
+#   - DiffusionPDE: https://arxiv.org/abs/2406.17763
+#   - EDM: https://arxiv.org/abs/2206.00364
+#
+# This is a FRAME-TO-FRAME model (non-autoregressive):
+#   Input:  conditioning
+#   Target: output fields
+#
+# Supports multiple tasks via task_cfg:
+#   - temperature_from_sdf: Predict temperature from SDF (Task 1)
+#   - velocity_from_interface: Predict velocity + temperature from SDF + interface velocity (Task 2)
+#
+# Channel configuration is auto-computed from task_cfg:
+#   cond_channels = num_conditioning_channels
+#   img_channels = num_target_channels
+#
+# Image resolution is computed dynamically from:
+#   img_resolution = base_resolution / downsample_factor
+# where downsample_factor comes from data_cfg (e.g., poolboiling_subcooled.yaml)
+
+name: edm
+
+# Base resolution of the dataset (before downsampling)
+# BubbleML dataset has 512x512 resolution
+# Image resolution is computed as: base_resolution / downsample_factor
+# e.g., with downsample_factor=4: 512/4 = 128x128
+base_resolution: 512
+
+# SongUNet architecture parameters (DDPM++ style)
+# Configured to match flow_matching.yaml for fair comparison:
+#   flow_matching: base_channels=32, 3 levels (32→64→128)
+#   diffusion_pde: model_channels=32, channel_mult=[1,2,4] (32→64→128)
+# Large in original DiffusionPDE paper
+# model_channels: 128
+# channel_mult: [1, 2, 2, 2]
+# num_blocks: 4
+model_channels: 32           # Base channel multiplier (matches flow_matching base_channels)
+channel_mult: [1, 2, 4]      # Per-resolution multipliers: 32→64→128 (matches flow_matching)
+channel_mult_emb: 4          # Embedding dimension multiplier
+num_blocks: 2                # Residual blocks per resolution (matches flow_matching num_res_blocks)
+# Note: attn_resolutions is computed dynamically based on image resolution
+# Default is img_resolution/8, e.g., 16 for 128x128, 64 for 512x512
+dropout: 0.10                # Dropout probability
+
+# EDM-specific parameters
+sigma_min: 0.002             # Minimum noise level
+sigma_max: 80                # Maximum noise level
+sigma_data: 0.5              # Expected data standard deviation
+rho: 7                       # Noise schedule exponent
+
+# Embedding configuration
+embedding_type: positional   # 'positional' (DDPM++) or 'fourier' (NCSN++)
+channel_mult_noise: 1        # Timestep embedding size multiplier
+
+# Encoder/Decoder architecture
+encoder_type: standard       # 'standard', 'skip', or 'residual'
+decoder_type: standard       # 'standard' or 'skip'
+resample_filter: [1, 1]      # Resampling filter: [1,1] for DDPM++, [1,3,3,1] for NCSN++
+
+# Precision
+use_fp16: false              # Use FP16 precision (faster on GPU but less stable)
+
+# Sampling configuration
+num_sampling_steps: 50       # Number of EDM sampling steps
+solver: heun                 # ODE solver: 'euler' or 'heun' (2nd order)
+
+# DEPRECATED: Temperature normalization is now handled by the dataset automatically.
+temp_min: 55.0
+temp_max: 120.0
+
+# Model name for loading
+_target_: bubblefusion.models.edm.EDMLightning

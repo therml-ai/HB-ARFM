@@ -1,0 +1,22 @@
+# UNet model configuration for direct regression
+# Supports multiple tasks via task_cfg:
+# - Task 1: temperature_from_sdf (SDF -> temperature)
+# - Task 2: velocity_from_interface (SDF + interface vel -> velx, vely, temperature)
+#
+# Note: in_channels and out_channels are automatically computed from task_cfg
+# This enables the same model architecture to handle different tasks.
+
+name: unet
+
+# Model architecture
+# Model architecture (same as unet_ar.py, from PDEBench)
+init_features: 32  # Initial number of features in the UNet
+
+# DEPRECATED: Temperature normalization is now handled by the dataset automatically.
+# Normalization stats are computed from training data (see NORMALIZATION_REQUIREMENTS.md).
+# These values are kept for backward compatibility and approximate logging only.
+temp_min: 55.0  # approximate (actual min computed from training data)
+temp_max: 120.0  # approximate (actual max computed from training data)
+
+# Model name for loading
+_target_: bubblefusion.models.unet.UNetLightning

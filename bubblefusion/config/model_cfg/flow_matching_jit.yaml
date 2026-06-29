@@ -1,0 +1,28 @@
+name: flow_matching_jit
+img_size: 128
+patch_size: 4
+hidden_size: 384
+depth: 8
+num_heads: 8
+mlp_ratio: 4.0
+bottleneck_dim: 64
+dropout: 0.0
+P_mean: -0.8
+P_std: 0.8
+noise_scale: 1.0
+t_eps: 1e-5
+num_integration_steps: 50
+# Loss configuration: mse | l1 | huber | relative_l1 | relative_l2 | hybrid
+loss_type: relative_l1
+# For hybrid loss, specify weights (only used when loss_type=hybrid):
+# loss_weights:
+l1: 0.7
+relative_l1: 0.3
+# loss_eps: 0.01  # epsilon for relative losses
+loss_delta: 0.01  # delta for huber loss (only used when loss_type=huber)
+temp_min: 55.0
+temp_max: 120.0
+inference:
+  solver: heun
+  guidance_scale: 1.0
+_target_: bubblefusion.models.flow_matching_jit.ConditionalFlowMatchingJiTLightning

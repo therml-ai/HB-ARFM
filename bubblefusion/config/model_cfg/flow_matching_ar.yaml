@@ -1,0 +1,165 @@
+# Autoregressive Flow Matching for Temporal Consistency
+# 
+# This model implements autoregressive conditioning to enforce temporal consistency
+# by construction. The model conditions on the previous timestep's output.
+#
+# Key Idea:
+# - Input:  [conditioning_t, output_{t-1}]  # current SDF/interface vel + previous output
+# - Target: output_t                         # current output
+#
+# Training Modes:
+# 1. Teacher Forcing (scheduled_sampling.enabled=false):
+#    - Previous state comes from ground truth
+#    - Enables efficient parallel training
+#    - May cause exposure bias (model only sees perfect previous states)
+#
+# 2. Scheduled Sampling (scheduled_sampling.enabled=true):
+#    - Gradually transitions from teacher forcing to model predictions
+#    - Early training: 100% ground truth (pure teacher forcing)
+#    - Mid training: mixture of ground truth and model predictions
+#    - Late training: 100% model predictions (like inference)
+#    - Reduces exposure bias and improves inference robustness
+#
+# Inference (autoregressive rollout):
+# - Previous state comes from model's own predictions
+# - May accumulate errors over long sequences (mitigated by scheduled sampling)
+#
+# For Task 2 (velocity_from_interface):
+# - conditioning: [SDF_t, velx_interface_t, vely_interface_t] → 3 channels
+# - prev_output:  [velx_{t-1}, vely_{t-1}, temp_{t-1}]        → 3 channels
+# - x_t (noisy):  [velx_t, vely_t, temp_t]                    → 3 channels
+# - UNet input:   [x_t, conditioning, prev_output]            → 9 channels
+# - UNet output:  velocity field for [velx_t, vely_t, temp_t] → 3 channels
+
+name: flow_matching_ar
+
+# Model architecture (same as base flow_matching)
+base_channels: 32  # base number of channels (adjust for capacity)
+time_embed_dim: 256  # timestep embedding dimension
+num_res_blocks: 2  # residual blocks per level
+use_attention: false  # use attention blocks (can enable for better quality)
+dropout: 0.1  # dropout probability
+
+# Flow matching parameters
+num_integration_steps: 50  # number of ODE integration steps for sampling
+
+# Noise scale for flow matching (EXPERIMENTAL - keep at 1.0)
+# The standard flow matching formulation requires std=1.0 Gaussian noise.
+# Changing this value breaks the theoretical guarantees and typically
+# produces worse results (incorrect value ranges, poor convergence).
+# Keep at 1.0 unless you have a specific reason to change it.
+noise_scale: 1.0  # Standard Gaussian noise (DO NOT CHANGE)
+
+# DEPRECATED: Temperature normalization is now handled by the dataset automatically.
+# Normalization stats are computed from training data (see NORMALIZATION_REQUIREMENTS.md).
+# These values are kept for backward compatibility with old checkpoints and approximate
+# denormalization during training/validation logging. For accurate physical values,
+# use the inference scripts which apply proper denormalization from computed stats.
+temp_min: 55.0  # approximate (actual min computed from training data)
+temp_max: 120.0  # approximate (actual max computed from training data)
+
+# =============================================================================
+# SCHEDULED SAMPLING CONFIGURATION
+# =============================================================================
+# Scheduled sampling gradually transitions from teacher forcing (ground truth
+# previous state) to using the model's own predictions during training.
+# This reduces "exposure bias" where the model only sees perfect inputs during
+# training but imperfect (its own) predictions during inference.
+#
+# Schedule Types:
+# - "linear": teacher_ratio decreases linearly from 1.0 to min_teacher_ratio
+# - "exponential": teacher_ratio = max(min_teacher_ratio, decay_rate^epoch)
+# - "inverse_sigmoid": smooth S-curve transition (recommended)
+#
+# Teacher Ratio:
+# - 1.0 = 100% teacher forcing (ground truth previous state)
+# - 0.0 = 100% model predictions (like inference)
+
+scheduled_sampling:
+  enabled: false  # Set to true to enable scheduled sampling
+  
+  # Schedule parameters
+  schedule_type: "linear"  # Options: "linear", "exponential", "inverse_sigmoid"
+  
+  # When to start and end the transition
+  warmup_epochs: 5        # Pure teacher forcing for first N epochs (stability)
+  transition_epochs: 40   # Number of epochs to transition from 1.0 to min_teacher_ratio
+  
+  # Final teacher forcing ratio (0.0 = 100% predictions, 0.1 = 90% predictions)
+  min_teacher_ratio: 0.0
+  
+  # For exponential schedule: decay rate per epoch after warmup
+  exponential_decay_rate: 0.95
+  
+  # For inverse sigmoid: controls steepness of transition (higher = steeper)
+  sigmoid_k: 5.0
+  
+  # Number of ODE integration steps when generating predictions during training
+  # (can be fewer than inference to speed up training)
+  sampling_steps: 20
+
+# =============================================================================
+# AUXILIARY LOSSES CONFIGURATION
+# =============================================================================
+# Auxiliary losses to improve physics and prevent blur/smoothing in predictions.
+# These are added ON TOP of the primary flow matching MSE loss.
+
+auxiliary_losses:
+  # --------------------------------------------------------------------------
+  # Existing losses (for sharpness)
+  # --------------------------------------------------------------------------
+  # Spectral loss: Preserves high-frequency details in frequency domain
+  spectral_enabled: false
+  spectral_weight: 0.1
+  spectral_high_freq_weight: 2.0
+  spectral_freq_threshold: 0.3
+  
+  # Gradient loss: Preserves edges and sharp transitions
+  gradient_enabled: false
+  gradient_weight: 0.1
+  
+  # --------------------------------------------------------------------------
+  # PHYSICS-INFORMED LOSSES (NEW)
+  # --------------------------------------------------------------------------
+  # These losses enforce physical constraints from governing equations.
+  # Recommended for ablation study: Try each individually, then combine.
+  #
+  # Interface Detection Methods (matching physics_metrics_task2.py):
+  # - VELOCITY metrics (divergence, vorticity): Use MASSFLUX-based detection
+  #   Interface = cells where |velx_interface| or |vely_interface| > threshold
+  # - TEMPERATURE metrics (advection): Use SDF-based detection
+  #   Interface = cells where |SDF| < threshold
+  
+  # 1. Divergence-Free Loss (Mass Conservation)
+  #    For incompressible flow: ∇·V = ∂u/∂x + ∂v/∂y ≈ 0
+  #    Your metrics show: GT=0.000437, Pred=0.051223 (100x worse!)
+  #    Uses MASSFLUX-based interface detection
+  divergence_enabled: false
+  divergence_weight: 0.1  # Suggest: 0.05-0.2
+  divergence_massflux_threshold: 0.01  # Threshold for |velx_interface| or |vely_interface|
+  divergence_exclude_interface: true  # Exclude interface (mass flux from phase change)
+  
+  # 2. Vorticity Consistency Loss (Rotational Flow Patterns)
+  #    Matches ω = ∂v/∂x - ∂u/∂y between prediction and target
+  #    Your metrics show: GT=0.005373, Pred=0.059363 (10x worse in bulk!)
+  #    Uses MASSFLUX-based interface detection
+  vorticity_enabled: false
+  vorticity_weight: 0.1  # Suggest: 0.05-0.1
+  vorticity_massflux_threshold: 0.01  # Threshold for |velx_interface| or |vely_interface|
+  vorticity_exclude_interface: true
+  
+  # 3. Advection Consistency Loss (Velocity-Temperature Coupling)
+  #    From energy equation LHS: ∂T/∂t + u·∇T ≈ 0 (ignoring stiff RHS)
+  #    Checks if temperature moves in the direction velocity says it should.
+  #    This is a geometric constraint, not solving the full PDE.
+  #    Uses SDF-based interface detection (appropriate for temperature)
+  advection_enabled: false
+  advection_weight: 0.1  # Suggest: 0.05-0.1
+  advection_dt: 0.001  # Time step between frames (non-dimensional)
+  advection_interface_threshold: 0.1  # SDF threshold for interface exclusion
+  advection_exclude_interface: true
+  advection_exclude_near_wall: true  # Wall has heat source, not pure advection
+  advection_wall_rows: 4  # Rows near wall to exclude
+
+# Model name for loading
+_target_: bubblefusion.models.flow_matching_ar.ConditionalFlowMatchingARLightning

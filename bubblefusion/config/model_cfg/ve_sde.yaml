@@ -1,0 +1,54 @@
+# Score-Based Model with Variance Exploding (VE) SDE configuration
+# Based on the original score_sde repository: https://github.com/yang-song/score_sde
+#
+# Uses noise prediction (ε-parameterization) for numerical stability:
+# - Network predicts noise ε
+# - Score computed as: s = -ε / σ
+# 
+# Supports multiple tasks via task_cfg:
+#   - temperature_from_sdf: Predict temperature from SDF (1 conditioning + 1 target)
+#   - velocity_from_interface: Predict velocity + temperature from SDF + interface velocity (3 conditioning + 3 target)
+#
+# Channel configuration:
+#   in_channels = num_target_channels + num_conditioning_channels (auto-computed from task_cfg if not set)
+#   out_channels = num_target_channels (auto-computed from task_cfg if not set)
+
+name: ve_sde
+
+# Model architecture (NCSN++)
+# Note: in_channels and out_channels are auto-computed from task_cfg if not explicitly set
+base_channels: 32  # base number of channels
+sigma_embed_dim: 256  # sigma embedding dimension
+num_res_blocks: 2  # residual blocks per level
+use_attention: false  # use attention blocks (ONLY at 1/4 resolution to avoid OOM on 512x512)
+dropout: 0.1  # dropout probability
+
+# VE-SDE noise schedule parameters
+# IMPORTANT: sigma_max should match your data scale!
+# For normalized data in [-1, 1], sigma_max=1.0 is appropriate
+# For unnormalized data, use sigma_max close to data std
+sigma_min: 0.01  # minimum noise level
+sigma_max: 1.0   # maximum noise level (CRITICAL: was 50, now 1.0 for [-1,1] data!)
+
+# Sampling parameters
+num_sampling_steps: 500  # number of steps for sampling (more = better quality, slower)
+sampling_method: pc  # sampling method: 'pc' (Predictor-Corrector), 'ode', 'euler'
+snr: 0.16  # signal-to-noise ratio for Langevin corrector (PC method)
+
+# DEPRECATED: Temperature normalization is now handled by the dataset automatically.
+# Normalization stats are computed from training data (see NORMALIZATION_REQUIREMENTS.md).
+# These values are kept for backward compatibility and approximate logging only.
+temp_min: 55.0  # approximate (actual min computed from training data)
+temp_max: 120.0  # approximate (actual max computed from training data)
+
+# Wall temperature conditioning (ABLATION STUDY)
+# Options: "none", "bias", "film"
+conditioning_strategy: none
+
+# Conditioning parameters
+wall_temp_bias_hidden: 64
+wall_temp_film_hidden: 128
+wall_temp_film_gamma_range: 0.75
+
+# Model name for loading
+_target_: bubblefusion.models.ve_sde.ScoreBasedVESDELightning

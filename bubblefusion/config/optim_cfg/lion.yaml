@@ -1,0 +1,5 @@
+name: lion
+params:
+  lr: 0.5e-4
+  weight_decay: 1.0e-1
+  use_triton: True

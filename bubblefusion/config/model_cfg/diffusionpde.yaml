@@ -1,0 +1,77 @@
+# DiffusionPDE: Generative PDE-Solving Under Partial Observation (NeurIPS 2024)
+#
+# Faithful baseline of the real DiffusionPDE method:
+#   https://arxiv.org/abs/2406.17763
+#
+# Key differences from our conditional EDM (edm.yaml):
+#   1. UNCONDITIONAL joint diffusion training on ALL fields
+#   2. PDE-guided + observation-guided sampling at inference
+#
+# This is a FRAME-TO-FRAME model (non-autoregressive):
+#   Training:  learns joint distribution p(observed, target)
+#   Inference: generates target fields guided by observed conditioning + PDE
+#
+# Channel configuration is auto-computed from task_cfg:
+#   joint_channels = num_conditioning_channels + num_target_channels
+#   e.g. Task 2: 3 observed (sdf, vix, viy) + 3 target (vx, vy, T) = 6
+#
+# Image resolution is computed dynamically from:
+#   img_resolution = base_resolution / downsample_factor
+
+name: diffusionpde
+
+# Base resolution of the BubbleML dataset (before downsampling)
+base_resolution: 512
+
+# SongUNet architecture parameters
+# Matched to edm.yaml / flow_matching.yaml for fair comparison:
+#   model_channels=32, channel_mult=[1,2,4] -> 32->64->128
+model_channels: 32
+channel_mult: [1, 2, 4]
+channel_mult_emb: 4
+num_blocks: 2
+dropout: 0.10
+
+# EDM noise schedule
+sigma_min: 0.002
+sigma_max: 80
+sigma_data: 0.5
+rho: 7
+
+# Embedding / encoder / decoder
+embedding_type: positional
+channel_mult_noise: 1
+encoder_type: standard
+decoder_type: standard
+resample_filter: [1, 1]
+
+# Precision
+use_fp16: false
+
+# Sampling
+num_sampling_steps: 50
+solver: heun
+
+# =============================================================================
+# DiffusionPDE guidance parameters (inference only -- does NOT affect training)
+# =============================================================================
+# Observation guidance weight (matches known fields to conditioning)
+zeta_obs: 1.0
+
+# PDE guidance weight (divergence-free constraint on bulk velocity)
+zeta_pde: 0.5
+
+# Fraction of total steps before PDE guidance activates (0.8 = last 20%)
+pde_start_fraction: 0.8
+
+# Observation weight multiplier during the PDE guidance phase
+pde_obs_decay: 0.1
+
+# SDF > this threshold is considered bulk liquid for divergence mask
+bulk_sdf_threshold: 0.05
+
+# DEPRECATED: Temperature normalization handled by dataset automatically.
+temp_min: 55.0
+temp_max: 120.0
+
+_target_: bubblefusion.models.diffusionpde.DiffusionPDELightning

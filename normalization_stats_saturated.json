@@ -1,0 +1,33 @@
+{
+  "temperature": {
+    "min": 55.8046989440918,
+    "max": 104.84624481201172,
+    "center": 80.32547187805176,
+    "half_range": 24.52077293395996,
+    "method": "tanh"
+  },
+  "velx": {
+    "scale": 3.544633388519287,
+    "method": "scale"
+  },
+  "vely": {
+    "scale": 3.544633388519287,
+    "method": "scale"
+  },
+  "velx_interface": {
+    "scale": 3.544633388519287,
+    "method": "scale"
+  },
+  "vely_interface": {
+    "scale": 3.544633388519287,
+    "method": "scale"
+  },
+  "sdf": {
+    "scale": 15.5192232131958,
+    "method": "scale"
+  },
+  "unified_velocity_scale": 3.544633388519287,
+  "velocity_max": 46.6038703918457,
+  "velocity_percentile_used": 99.0,
+  "has_interface_velocity": 1.0
+}

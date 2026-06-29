@@ -1,0 +1,52 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Pytest cache
+.pytest_cache/
+
+# Jobfiles and logs
+wandb/
+outputs/
+*.sub
+*.out
+*.log
+*.csv
+*.ckpt
+hparams.yaml
+*.png
+!media/*.png
+*.hdf5
+*.h5
+*.hdf
+*.h5
+*.gif
+*.pdf
+*.npz
+
+# Pytorch Saved models and Data
+*.pt
+
+# VSCode Workspace
+.vscode/
+*.code-workspace
+
+
+# Jupyter Notebook
+.virtual_documents
+.ipynb_checkpoints
+
+# Wandb API key
+bubblefusion/config/wandb_api_key.txt
+CLAUDE.md
+
+# other files
+heatflux_interpolation_*.json
+metrics_*.json
+metrics.json
+*.tex
+train_*.sh
+!train_flow_matching.sh
+!train_flow_matching_ar.sh
+!train_flow_matching_ar_bootstrap.sh

@@ -1,0 +1,30 @@
+# Factorized Fourier Neural Operator (FFNO) model configuration for direct regression
+# Supports multiple tasks via task_cfg:
+# - Task 1: temperature_from_sdf (SDF -> temperature)
+# - Task 2: velocity_from_interface (SDF + interface vel -> velx, vely, temperature)
+#
+# Note: in_channels and out_channels are automatically computed from task_cfg
+# This enables the same model architecture to handle different tasks.
+#
+# Reference:
+# - Factorized FNO: https://github.com/alasdairtran/fourierflow/
+# - BubbleML implementation: https://github.com/HPCForge/BubbleML
+
+name: ffno
+
+# FFNO Architecture Parameters
+modes: 12        # Number of Fourier modes to keep (higher = more detail, default: 12)
+width: 64        # Internal hidden dimension (default: 64)
+n_layers: 4      # Number of spectral convolutional layers (default: 4)
+dropout: 0.0     # Dropout probability for regularization
+use_fork: false  # Use fork architecture (separate forecast/backcast streams)
+fourier_mode: full  # 'full' for learned spectral transform, 'low-pass' for simple filter
+
+# DEPRECATED: Temperature normalization is now handled by the dataset automatically.
+# Normalization stats are computed from training data (see NORMALIZATION_REQUIREMENTS.md).
+# These values are kept for backward compatibility and approximate logging only.
+temp_min: 55.0  # approximate (actual min computed from training data)
+temp_max: 120.0  # approximate (actual max computed from training data)
+
+# Model name for loading
+_target_: bubblefusion.models.ffno.FFNOLightning

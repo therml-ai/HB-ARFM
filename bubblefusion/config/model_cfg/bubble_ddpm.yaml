@@ -1,0 +1,15 @@
+name: bubble_ddpm
+
+# UNet architecture parameters
+in_channels: 6              # Noisy target (3) + conditioning (3)
+out_channels: 3             # Predict noise for target channels
+base_channels: 32           # Base number of channels for first layer (reduced for memory)
+time_embed_dim: 256         # Dimension of timestep embeddings
+num_res_blocks: 2           # Number of residual blocks per level
+use_attention: false        # Whether to use attention blocks (disabled for memory)
+dropout: 0.1                # Dropout probability
+
+# DDPM parameters
+num_timesteps: 1000         # Number of diffusion timesteps
+beta_start: 0.0001          # Start value for noise schedule
+beta_end: 0.02              # End value for noise schedule

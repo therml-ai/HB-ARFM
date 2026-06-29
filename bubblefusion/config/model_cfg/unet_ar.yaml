@@ -1,0 +1,106 @@
+# Autoregressive UNet for Temporal Consistency
+# 
+# This model implements autoregressive conditioning to enforce temporal consistency
+# by construction. The model conditions on the previous timestep's output.
+#
+# Key Difference from flow_matching_ar:
+# - Direct regression (no diffusion/flow matching ODE integration)
+# - Faster inference (single forward pass instead of ODE solving)
+# - May produce slightly smoother outputs (no stochastic refinement)
+#
+# Key Idea:
+# - Input:  [conditioning_t, output_{t-1}]  # current SDF/interface vel + previous output
+# - Target: output_t                         # current output
+#
+# Training Modes:
+# 1. Teacher Forcing (scheduled_sampling.enabled=false):
+#    - Previous state comes from ground truth
+#    - Enables efficient parallel training
+#    - May cause exposure bias
+#
+# 2. Scheduled Sampling (scheduled_sampling.enabled=true):
+#    - Gradually transitions from teacher forcing to model predictions
+#    - Reduces exposure bias and improves inference robustness
+#
+# For Task 2 (velocity_from_interface):
+# - conditioning: [SDF_t, velx_interface_t, vely_interface_t] → 3 channels
+# - prev_output:  [velx_{t-1}, vely_{t-1}, temp_{t-1}]        → 3 channels
+# - UNet input:   [conditioning, prev_output]                  → 6 channels
+# - UNet output:  [velx_t, vely_t, temp_t]                     → 3 channels
+
+name: unet_ar
+
+# Model architecture
+init_features: 32  # initial number of features (adjust for capacity)
+
+# DEPRECATED: Temperature normalization is now handled by the dataset automatically.
+# Normalization stats are computed from training data (see NORMALIZATION_REQUIREMENTS.md).
+# These values are kept for backward compatibility and approximate logging only.
+temp_min: 55.0  # approximate (actual min computed from training data)
+temp_max: 120.0  # approximate (actual max computed from training data)
+
+# Wall temperature conditioning (ABLATION STUDY)
+# Options: "none", "bias", "film"
+conditioning_strategy: none
+
+# Conditioning parameters (if using bias or film)
+wall_temp_bias_hidden: 64
+wall_temp_film_hidden: 128
+wall_temp_film_gamma_range: 0.75
+
+# =============================================================================
+# RESIDUAL/DELTA PREDICTION MODE
+# =============================================================================
+# Instead of predicting absolute output, predict the change from previous state:
+#   delta_t = output_t - output_{t-1}
+#   output_t = output_{t-1} + delta_t
+#
+# Benefits:
+# - Errors are additive, not compounding multiplicatively
+# - Targets have smaller magnitude (easier to learn)
+# - Matches physics (slow thermal/velocity evolution)
+# - Reduces blur in AR rollout
+
+residual_prediction: false  # Set to true to enable delta prediction
+
+# =============================================================================
+# AUXILIARY LOSSES (for sharper outputs)
+# =============================================================================
+auxiliary_losses:
+  # Spectral loss (preserves high-frequency details)
+  spectral_enabled: false
+  spectral_weight: 0.1
+  spectral_high_freq_weight: 2.0
+  spectral_freq_threshold: 0.3
+  
+  # Gradient loss (preserves edges)
+  gradient_enabled: false
+  gradient_weight: 0.1
+
+# =============================================================================
+# SCHEDULED SAMPLING CONFIGURATION
+# =============================================================================
+# Scheduled sampling gradually transitions from teacher forcing (ground truth
+# previous state) to using the model's own predictions during training.
+
+scheduled_sampling:
+  enabled: true  # Set to true to enable scheduled sampling
+  
+  # Schedule parameters
+  schedule_type: "linear"  # Options: "linear", "exponential", "inverse_sigmoid"
+  
+  # When to start and end the transition
+  warmup_epochs: 5        # Pure teacher forcing for first N epochs
+  transition_epochs: 40   # Epochs to transition from 1.0 to min_teacher_ratio
+  
+  # Final teacher forcing ratio
+  min_teacher_ratio: 0.0
+  
+  # For exponential schedule
+  exponential_decay_rate: 0.95
+  
+  # For inverse sigmoid
+  sigmoid_k: 5.0
+
+# Model name for loading
+_target_: bubblefusion.models.unet_ar.UNetARLightning
